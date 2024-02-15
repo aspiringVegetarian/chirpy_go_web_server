@@ -11,7 +11,7 @@ type apiConfig struct {
 
 func (cfg *apiConfig) middlewareMetricsIncrementer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.fileserverHits += 1
+		cfg.fileserverHits++
 		next.ServeHTTP(w, r)
 	})
 }
