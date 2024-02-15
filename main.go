@@ -6,10 +6,14 @@ import (
 )
 
 func main() {
+
 	const port = "8080"
 	const filePathRoot = "."
 
+	apiCfg := apiConfig{fileserverHits: 0}
+
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, req *http.Request) {
 
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -20,7 +24,11 @@ func main() {
 
 	})
 
-	mux.Handle("/app/", http.StripPrefix("/app/", http.FileServer(http.Dir(filePathRoot))))
+	mux.HandleFunc("/metrics", apiCfg.metricsHandler)
+
+	mux.HandleFunc("/reset", apiCfg.metricsReset)
+
+	mux.Handle("/app/", apiCfg.middlewareMetricsIncrementer(http.StripPrefix("/app/", http.FileServer(http.Dir(filePathRoot)))))
 
 	corsMux := middlewareCors(mux)
 
@@ -31,17 +39,4 @@ func main() {
 
 	log.Printf("Serving on port: %s\n", port)
 	log.Fatal(srv.ListenAndServe())
-}
-
-func middlewareCors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
