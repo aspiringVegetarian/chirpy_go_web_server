@@ -36,21 +36,31 @@ func main() {
 		corsMux := middlewareCors(mux)
 	*/
 
-	r := chi.NewRouter()
+	router := chi.NewRouter()
 
 	fileServerHandler := apiCfg.middlewareMetricsIncrementer(http.StripPrefix("/app", http.FileServer(http.Dir(filePathRoot))))
 
-	r.Handle("/app", fileServerHandler)
+	router.Handle("/app", fileServerHandler)
 
-	r.Handle("/app/*", fileServerHandler)
+	router.Handle("/app/*", fileServerHandler)
 
-	r.Get("/healthz", healthHandler)
+	rApi := chi.NewRouter()
 
-	r.Get("/metrics", apiCfg.metricsHandler)
+	rApi.Get("/healthz", healthHandler)
 
-	r.Get("/reset", apiCfg.metricsReset)
+	rApi.Get("/reset", apiCfg.metricsReset)
 
-	corsMux := middlewareCors(r)
+	rApi.Post("/validate_chirp", validateChirpHandler)
+
+	router.Mount("/api", rApi)
+
+	rAdmin := chi.NewRouter()
+
+	rAdmin.Get("/metrics", apiCfg.metricsHandler)
+
+	router.Mount("/admin", rAdmin)
+
+	corsMux := middlewareCors(router)
 
 	srv := &http.Server{
 		Addr:    "localhost:" + port,
