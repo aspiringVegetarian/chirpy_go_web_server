@@ -1,9 +1,12 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"net/http"
+	"os"
 
+	"github.com/aspiringVegetarian/chirpy_go_web_server/internal/database"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -11,8 +14,24 @@ func main() {
 
 	const port = "8080"
 	const filePathRoot = "."
+	const dbFilePath = "./chirpy_database.json"
+
+	dbg := flag.Bool("debug", false, "Enable debug mode")
+	flag.Parse()
+
+	if *dbg {
+
+		err := os.Remove(dbFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	apiCfg := apiConfig{fileserverHits: 0}
+	chirpyDatabase, err := database.NewDB(dbFilePath)
+	if err != nil {
+		log.Fatal("Failed to init database")
+	}
 
 	/*
 		mux := http.NewServeMux()
@@ -50,13 +69,21 @@ func main() {
 
 	rApi.Get("/reset", apiCfg.metricsReset)
 
-	rApi.Post("/validate_chirp", validateChirpHandler)
+	rApi.Get("/chirps", chirpyDatabase.GetChirpsHandler)
+
+	rApi.Get("/chirps/{chirpID}", chirpyDatabase.GetChirpHandler)
+
+	rApi.Post("/chirps", chirpyDatabase.PostChirpHandler)
+
+	rApi.Post("/users", chirpyDatabase.PostUserHandler)
 
 	router.Mount("/api", rApi)
 
 	rAdmin := chi.NewRouter()
 
 	rAdmin.Get("/metrics", apiCfg.metricsHandler)
+
+	rAdmin.Get("/dbreset", chirpyDatabase.DatabaseResetHandler)
 
 	router.Mount("/admin", rAdmin)
 
