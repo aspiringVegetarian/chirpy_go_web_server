@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -8,7 +9,14 @@ import (
 
 	"github.com/aspiringVegetarian/chirpy_go_web_server/internal/database"
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 )
+
+type apiConfig struct {
+	fileserverHits int
+	chirpyDatabase database.DB
+	jwtSecret      string
+}
 
 func main() {
 
@@ -16,44 +24,34 @@ func main() {
 	const filePathRoot = "."
 	const dbFilePath = "./chirpy_database.json"
 
+	godotenv.Load()
+	jwtSecret := os.Getenv("JWT_SECRET")
+
 	dbg := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
 	if *dbg {
-
-		err := os.Remove(dbFilePath)
-		if err != nil {
-			log.Fatal(err)
+		_, err := os.Stat(dbFilePath)
+		if !errors.Is(err, os.ErrNotExist) {
+			err := os.Remove(dbFilePath)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 
-	apiCfg := apiConfig{fileserverHits: 0}
-	chirpyDatabase, err := database.NewDB(dbFilePath)
+	chirpyDB, err := database.NewDB(dbFilePath)
 	if err != nil {
 		log.Fatal("Failed to init database")
 	}
 
-	/*
-		mux := http.NewServeMux()
+	apiCfg := apiConfig{
+		fileserverHits: 0,
+		chirpyDatabase: *chirpyDB,
+		jwtSecret:      jwtSecret,
+	}
 
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, req *http.Request) {
-
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-
-			w.WriteHeader(http.StatusOK)
-
-			w.Write([]byte(http.StatusText(http.StatusOK)))
-
-		})
-
-		mux.HandleFunc("/metrics", apiCfg.metricsHandler)
-
-		mux.HandleFunc("/reset", apiCfg.metricsReset)
-
-		mux.Handle("/app/", apiCfg.middlewareMetricsIncrementer(http.StripPrefix("/app/", http.FileServer(http.Dir(filePathRoot)))))
-
-		corsMux := middlewareCors(mux)
-	*/
+	// File server routing /app and /app/*
 
 	router := chi.NewRouter()
 
@@ -63,29 +61,39 @@ func main() {
 
 	router.Handle("/app/*", fileServerHandler)
 
+	// API routing
+
 	rApi := chi.NewRouter()
 
 	rApi.Get("/healthz", healthHandler)
 
 	rApi.Get("/reset", apiCfg.metricsReset)
 
-	rApi.Get("/chirps", chirpyDatabase.GetChirpsHandler)
+	rApi.Get("/chirps", apiCfg.getChirpsHandler)
 
-	rApi.Get("/chirps/{chirpID}", chirpyDatabase.GetChirpHandler)
+	rApi.Get("/chirps/{chirpID}", apiCfg.getChirpHandler)
 
-	rApi.Post("/chirps", chirpyDatabase.PostChirpHandler)
+	rApi.Post("/chirps", apiCfg.postChirpHandler)
 
-	rApi.Post("/users", chirpyDatabase.PostUserHandler)
+	rApi.Post("/users", apiCfg.postUserHandler)
+
+	rApi.Put("/users", apiCfg.putUserHandler)
+
+	rApi.Post("/login", apiCfg.postLoginHandler)
 
 	router.Mount("/api", rApi)
+
+	// Admin routing
 
 	rAdmin := chi.NewRouter()
 
 	rAdmin.Get("/metrics", apiCfg.metricsHandler)
 
-	rAdmin.Get("/dbreset", chirpyDatabase.DatabaseResetHandler)
+	rAdmin.Get("/dbreset", apiCfg.chirpyDatabase.DatabaseResetHandler)
 
 	router.Mount("/admin", rAdmin)
+
+	// Fix headers with Cors middleware
 
 	corsMux := middlewareCors(router)
 

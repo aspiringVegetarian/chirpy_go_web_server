@@ -6,35 +6,18 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
-	"strconv"
-	"strings"
 	"sync"
-
-	"github.com/go-chi/chi/v5"
 )
 
-type Chirp struct {
-	// the key will be the name of struct field unless you give it an explicit JSON tag
-	ID   int    `json:"id"`
-	Body string `json:"body"`
-}
-
-type User struct {
-	// the key will be the name of struct field unless you give it an explicit JSON tag
-	ID    int    `json:"id"`
-	Email string `json:"email"`
-}
-
 type DBStructure struct {
-	Chirps map[int]Chirp `json:"chirps"`
-	Users  map[int]User  `json:"users"`
+	Chirps map[int]Chirp   `json:"chirps"`
+	Users  map[int]User `json:"users"`
 }
 
 type DB struct {
 	path string
 	mux  *sync.RWMutex
-	data DBStructure
+	Data DBStructure
 }
 
 // NewDB creates a new database connection
@@ -51,7 +34,7 @@ func NewDB(path string) (*DB, error) {
 		return &newDB, err
 	}
 
-	newDB.data, err = newDB.loadDB()
+	newDB.Data, err = newDB.loadDB()
 	if err != nil {
 		log.Printf("Failed to load new database")
 		return &newDB, err
@@ -69,12 +52,12 @@ func (db *DB) ensureDB() error {
 		log.Printf("Database does not exist at path: %v", db.path)
 		log.Printf("Creating new database at path: %v", db.path)
 
-		db.data = DBStructure{
+		db.Data = DBStructure{
 			Chirps: make(map[int]Chirp),
 			Users:  make(map[int]User),
 		}
 
-		err := db.writeDB(db.data)
+		err := db.writeDB(db.Data)
 		if err != nil {
 			log.Printf("Failed to write new database")
 			return err
@@ -95,13 +78,13 @@ func (db *DB) loadDB() (DBStructure, error) {
 		return DBStructure{}, err
 	}
 
-	err = json.Unmarshal(data, &db.data)
+	err = json.Unmarshal(data, &db.Data)
 	if err != nil {
 		log.Printf("Failed to unmarshal data")
 		return DBStructure{}, err
 	}
 
-	return db.data, nil
+	return db.Data, nil
 }
 
 // writeDB writes the database file to disk
@@ -124,173 +107,20 @@ func (db *DB) writeDB(dbStructure DBStructure) error {
 	return nil
 }
 
-// CreateChirp creates a new chirp and saves it to disk
-func (db *DB) CreateChirp(body string) (Chirp, error) {
-	id := len(db.data.Chirps) + 1
-	chirp := Chirp{
-		ID:   id,
-		Body: body,
-	}
-	db.data.Chirps[id] = chirp
-	err := db.writeDB(db.data)
-	if err != nil {
-		log.Printf("Failed to write new database")
-		return Chirp{}, err
-	}
-	return chirp, nil
-
-}
-
-func (db *DB) CreateUser(email string) (User, error) {
-	id := len(db.data.Users) + 1
-	user := User{
-		ID:    id,
-		Email: email,
-	}
-	db.data.Users[id] = user
-	err := db.writeDB(db.data)
-	if err != nil {
-		log.Printf("Failed to write new database")
-		return User{}, err
-	}
-	return user, nil
-
-}
-
-// GetChirps returns all chirps in the database
-func (db *DB) GetChirps() ([]Chirp, error) {
-	chirps := make([]Chirp, 0, len(db.data.Chirps))
-
-	for _, value := range db.data.Chirps {
-		chirps = append(chirps, value)
-	}
-
-	sort.Slice(chirps, func(i, j int) bool { return chirps[i].ID < chirps[j].ID })
-
-	return chirps, nil
-}
-
-func (db *DB) GetChirpsHandler(w http.ResponseWriter, req *http.Request) {
-
-	chirps, err := db.GetChirps()
-	if err != nil {
-		log.Printf("Failed to get chirps with error: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirps")
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, chirps)
-
-}
-
-func (db *DB) GetChirpHandler(w http.ResponseWriter, req *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(req, "chirpID"))
-	if err != nil {
-		log.Printf("Failed to get chirp ID from request with error: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't get chirp ID")
-		return
-	}
-
-	chirp, exists := db.data.Chirps[id]
-	if !exists {
-		log.Printf("Chirp ID %v does not exist", id)
-		respondWithError(w, http.StatusNotFound, "Chirp ID requested does not exist")
-		return
-	}
-
-	respondWithJSON(w, http.StatusOK, chirp)
-
-}
-
-func (db *DB) PostUserHandler(w http.ResponseWriter, req *http.Request) {
-
-	type parameters struct {
-		// these tags indicate how the keys in the JSON should be mapped to the struct fields
-		// the struct fields must be exported (start with a capital letter) if you want them parsed
-		Email string `json:"email"`
-	}
-
-	decoder := json.NewDecoder(req.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		// an error will be thrown if the JSON is invalid or has the wrong types
-		// any missing fields will simply have their values in the struct set to their zero value
-		log.Printf("Error decoding parameters: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
-		return
-	}
-
-	newUser, err := db.CreateUser(params.Email)
-	if err != nil {
-		log.Printf("Failed to create new chirp with error: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't create new chirp")
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, newUser)
-
-}
-
-func (db *DB) PostChirpHandler(w http.ResponseWriter, req *http.Request) {
-
-	type parameters struct {
-		// these tags indicate how the keys in the JSON should be mapped to the struct fields
-		// the struct fields must be exported (start with a capital letter) if you want them parsed
-		Body string `json:"body"`
-	}
-
-	decoder := json.NewDecoder(req.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		// an error will be thrown if the JSON is invalid or has the wrong types
-		// any missing fields will simply have their values in the struct set to their zero value
-		log.Printf("Error decoding parameters: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
-		return
-	}
-
-	if len(params.Body) > 140 {
-		log.Printf("Chirp is longer than 140 characters. Chirp length: %v", len(params.Body))
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
-		return
-	}
-
-	bodySplit := strings.Split(params.Body, " ")
-	badWords := map[string]bool{
-		"kerfuffle": true,
-		"sharbert":  true,
-		"fornax":    true}
-	for i, word := range bodySplit {
-		if badWords[strings.ToLower(word)] {
-			bodySplit[i] = "****"
-		}
-	}
-
-	bodyClean := strings.Join(bodySplit, " ")
-
-	newChirp, err := db.CreateChirp(bodyClean)
-	if err != nil {
-		log.Printf("Failed to create new chirp with error: %s", err)
-		respondWithError(w, http.StatusInternalServerError, "Couldn't create new chirp")
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, newChirp)
-
-}
-
 func (db *DB) DatabaseResetHandler(w http.ResponseWriter, req *http.Request) {
-	db.data = DBStructure{
-		Chirps: make(map[int]Chirp),
-		Users:  make(map[int]User),
+	err := os.Remove(db.path)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	err := db.writeDB(db.data)
+	err = db.ensureDB()
 	if err != nil {
-		log.Printf("Failed to write new database")
+		log.Fatal(err)
+	}
 
+	db.Data, err = db.loadDB()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -298,28 +128,4 @@ func (db *DB) DatabaseResetHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	w.Write([]byte("Database has been reset"))
-}
-
-func respondWithError(w http.ResponseWriter, code int, msg string) {
-	if code > 499 {
-		log.Printf("Responding with 5XX error: %s", msg)
-	}
-	type errorResponse struct {
-		Error string `json:"error"`
-	}
-	respondWithJSON(w, code, errorResponse{
-		Error: msg,
-	})
-}
-
-func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	dat, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshalling JSON: %s", err)
-		w.WriteHeader(500)
-		return
-	}
-	w.WriteHeader(code)
-	w.Write(dat)
 }
