@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aspiringVegetarian/chirpy_go_web_server/internal/database"
 	"github.com/go-chi/chi/v5"
@@ -16,6 +17,7 @@ type apiConfig struct {
 	fileserverHits int
 	chirpyDatabase database.DB
 	jwtSecret      string
+	revokedTokens  map[string]time.Time
 }
 
 func main() {
@@ -49,6 +51,7 @@ func main() {
 		fileserverHits: 0,
 		chirpyDatabase: *chirpyDB,
 		jwtSecret:      jwtSecret,
+		revokedTokens:  make(map[string]time.Time),
 	}
 
 	// File server routing /app and /app/*
@@ -80,6 +83,10 @@ func main() {
 	rApi.Put("/users", apiCfg.putUserHandler)
 
 	rApi.Post("/login", apiCfg.postLoginHandler)
+
+	rApi.Post("/refresh", apiCfg.postRefreshHandler)
+
+	rApi.Post("/revoke", apiCfg.postRevokeTokenHandler)
 
 	router.Mount("/api", rApi)
 

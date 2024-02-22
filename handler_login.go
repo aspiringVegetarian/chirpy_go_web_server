@@ -13,9 +13,10 @@ import (
 
 type UserToken struct {
 	// the key will be the name of struct field unless you give it an explicit JSON tag
-	ID    int    `json:"id"`
-	Email string `json:"email"`
-	Token string `json:"token"`
+	ID           int    `json:"id"`
+	Email        string `json:"email"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 func (cfg *apiConfig) postLoginHandler(w http.ResponseWriter, req *http.Request) {
@@ -23,9 +24,8 @@ func (cfg *apiConfig) postLoginHandler(w http.ResponseWriter, req *http.Request)
 	type parameters struct {
 		// these tags indicate how the keys in the JSON should be mapped to the struct fields
 		// the struct fields must be exported (start with a capital letter) if you want them parsed
-		Email      string `json:"email"`
-		Password   string `json:"password"`
-		Expiration int    `json:"expires_in_seconds"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	decoder := json.NewDecoder(req.Body)
@@ -57,25 +57,40 @@ func (cfg *apiConfig) postLoginHandler(w http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	if params.Expiration == 0 || params.Expiration > 24*60*60 {
-		params.Expiration = 24 * 60 * 60
-	}
+	timeNow := time.Now().UTC()
 
-	claims := &jwt.RegisteredClaims{
-		Issuer:    "chirpy",
-		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Second * time.Duration(params.Expiration))),
+	access_Claims := &jwt.RegisteredClaims{
+		Issuer:    "chirpy-access",
+		IssuedAt:  jwt.NewNumericDate(timeNow),
+		ExpiresAt: jwt.NewNumericDate(timeNow.Add(time.Hour)),
 		Subject:   strconv.Itoa(user.ID),
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	ss, err := token.SignedString([]byte(cfg.jwtSecret))
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, access_Claims)
+	signedAccessToken, err := accessToken.SignedString([]byte(cfg.jwtSecret))
 	if err != nil {
 		log.Printf("Error generating a signed string of the JWT with error: %s", err)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, UserToken{ID: user.ID, Email: user.Email, Token: ss})
+	refreshExpiration := time.Duration(time.Hour * 24 * 60)
+
+	refreshClaims := &jwt.RegisteredClaims{
+		Issuer:    "chirpy-refresh",
+		IssuedAt:  jwt.NewNumericDate(timeNow),
+		ExpiresAt: jwt.NewNumericDate(timeNow.Add(refreshExpiration)),
+		Subject:   strconv.Itoa(user.ID),
+	}
+
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	signedRefreshToken, err := refreshToken.SignedString([]byte(cfg.jwtSecret))
+	if err != nil {
+		log.Printf("Error generating a signed string of the JWT with error: %s", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't decode parameters")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, UserToken{ID: user.ID, Email: user.Email, Token: signedAccessToken, RefreshToken: signedRefreshToken})
 
 }

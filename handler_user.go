@@ -97,7 +97,18 @@ func (cfg *apiConfig) putUserHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	log.Print(token)
+	issuer, err := token.Claims.GetIssuer()
+	if err != nil {
+		log.Printf("Could not extract issuer from token claims: %s", err)
+		respondWithError(w, http.StatusUnauthorized, "Could not extract issuer from token")
+		return
+	}
+
+	if issuer != "chirpy-access" {
+		log.Printf("Invalid token issuer: %s", issuer)
+		respondWithError(w, http.StatusUnauthorized, "Invalid token issuer")
+		return
+	}
 
 	idString, err := token.Claims.GetSubject()
 	if err != nil {
